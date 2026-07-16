@@ -23,12 +23,18 @@ memory.
 ## Features
 
 - 4 Cherry MX Compatible Key Switches
-- 2.8" TFT LCD Display
-- 30 mm Speaker
-- 4 Digit 7 Segment Display
-- RP2040 Microcontroller
+- 2.8" TFT LCD Display (ST7789)
+- 30 mm Speaker with PAM8403 amp
+- 4 Digit 7 Segment Display (TM1637)
+- Orpheus Pico v2 MCU
+
+## Firmware
+
+Keystroke uses PlatformIO, with earlephilhower's build.
 
 ## Schematic
+
+<img width="648" height="577" alt="image" src="https://github.com/user-attachments/assets/e266699d-9c7d-4556-bfd8-52d7228d5a7e" />
 
 ## CAD
 
