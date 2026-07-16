@@ -1,4 +1,4 @@
-![Keystroke Image](assets/main_pic.png)
+<img src="assets/main_pic.png" height="400" alt="Keystroke Picture">
 
 # Keystroke
 
