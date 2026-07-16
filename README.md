@@ -1,3 +1,5 @@
+![Keystroke Image](assets/main_pic.png)
+
 # Keystroke
 
 _A mini piano-based arcade game, based off the arcade game Grand Piano Keys_
@@ -34,8 +36,8 @@ Keystroke uses PlatformIO, with earlephilhower's build.
 
 ## Schematic
 
-<img width="648" height="577" alt="image" src="https://github.com/user-attachments/assets/e266699d-9c7d-4556-bfd8-52d7228d5a7e" />
+![Schematic Picture](assets/schematic.png)
 
 ## CAD
 
-You can view the full assembled parts under the `cad/` subirectory, or [view the CAD on OnShape.](https://cad.onshape.com/documents/00226f2798e720e0cd69b425/w/7683bf336800655d27df2c58/e/37cc4361323e3d3f5d8912c6)
+You can view the full assembled cabinet as a STEP file under the `cad/` subdirectory, or [view the CAD on OnShape.](https://cad.onshape.com/documents/00226f2798e720e0cd69b425/w/7683bf336800655d27df2c58/e/37cc4361323e3d3f5d8912c6)
