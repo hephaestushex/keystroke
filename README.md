@@ -41,3 +41,11 @@ Keystroke uses PlatformIO, with earlephilhower's build.
 ## CAD
 
 You can view the full assembled cabinet as a STEP file under the `cad/` subdirectory, or [view the CAD on OnShape.](https://cad.onshape.com/documents/00226f2798e720e0cd69b425/w/7683bf336800655d27df2c58/e/37cc4361323e3d3f5d8912c6)
+
+## BOM
+
+- 1 2.8" TFT LCD Module
+- 1 30mm Speaker
+- 1 Raspberry Pi Pico (or equivalent microcontroller)
+- 1 PAM8403 Module
+- 1 4 Digit 7 Segment Display
