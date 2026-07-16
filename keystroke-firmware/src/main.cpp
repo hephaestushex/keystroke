@@ -28,6 +28,10 @@
 #define AUDIO_PIN 22   // -> PAM8403 INL
 
 const int BTN_PINS[4] = {BTN_A, BTN_B, BTN_C, BTN_D};
+const int GAME_TIME = 30 // in seconds
+const uint16_t LANE_COLORS[4] = {ST77XX_RED, ST77XX_GREEN, ST77XX_BLUE, ST77XX_YELLOW};
+
+uint16_t curColor = LANE_COLORS[0];
 
 // =================================================================
 // Peripherals
@@ -149,26 +153,26 @@ int lastDrawnSecond = -1; // used to only redraw TM1637 once per second
 // Display helpers
 // =================================================================
 void drawProgress() {
-  if (currentNote == lastDrawnNote) return; // dirty-check: skip redundant draws
+//   if (currentNote == lastDrawnNote) return; // dirty-check: skip redundant draws
   lastDrawnNote = currentNote;
 
   tft.fillRect(0, 0, 240, 90, ST77XX_BLACK); // only clear the info area, not full screen
 
-  tft.setCursor(10, 10);
-  tft.setTextSize(2);
-  tft.setTextColor(ST77XX_WHITE);
+//   tft.setCursor(10, 10);
+//   tft.setTextSize(2);
+//   tft.setTextColor(ST77XX_WHITE);
   if (currentNote < songLength) {
-    tft.print("Note ");
-    tft.print(currentNote + 1);
-    tft.print("/");
-    tft.println(songLength);
+    // tft.print("Note ");
+    // tft.print(currentNote + 1);
+    // tft.print("/");
+    // tft.println(songLength);
 
-    tft.setCursor(10, 40);
-    tft.setTextSize(3);
-    uint16_t laneColors[4] = {ST77XX_RED, ST77XX_GREEN, ST77XX_BLUE, ST77XX_YELLOW};
-    tft.setTextColor(laneColors[song[currentNote].lane]);
-    tft.print("Press ");
-    tft.println((char)('A' + song[currentNote].lane));
+    // tft.setCursor(10, 40);
+    // tft.setTextSize(3);
+    tft.fillRect(0, 0, 60, 80, curColor);
+    // tft.setTextColor(laneColors[song[currentNote].lane]);
+    // tft.print("Press ");
+    // tft.println((char)('A' + song[currentNote].lane));
   } else {
     tft.setCursor(10, 30);
     tft.setTextSize(2);
@@ -182,8 +186,8 @@ void drawTimer() {
   if ((int)elapsedSec == lastDrawnSecond) return; // only update once per second
   lastDrawnSecond = elapsedSec;
 
-  int mins = elapsedSec / 60;
-  int secs = elapsedSec % 60;
+  int mins = GAME_TIME - (elapsedSec / 60);
+  int secs = GAME_TIME - (elapsedSec % 60);
   int displayVal = mins * 100 + secs; // e.g. 1:05 -> 105, shown as 01:05 with colon
   sevenseg.showNumberDecEx(displayVal, 0b01000000, true); // 0x40 = colon bit, varies by module
 }
@@ -239,5 +243,7 @@ void loop() {
 
   // --- Display updates (dirty-checked, only redraw on change) ---
   drawProgress();
-  drawTimer();
+
+  if (GAME_TIME > -1)
+    drawTimer();
 }
