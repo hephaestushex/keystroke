@@ -4,12 +4,11 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include <TM1637Display.h>
+#include <EEPROM.h>
 #include <math.h>
-#include "song_chopsticks.h"
+#include "song_types.h"
 
-// =================================================================
-// Pin map — from keystroke.kicad_sch netlist
-// =================================================================
+// Pin Mapping
 #define BTN_A     0
 #define BTN_B     1
 #define BTN_C     2
@@ -25,26 +24,22 @@
 #define TFT_DC    20
 #define TFT_RST   21
 
-#define AUDIO_PIN 22   // -> PAM8403 INL
+#define AUDIO_PIN 22   // PAM8403 INL
 
 const int BTN_PINS[4] = {BTN_A, BTN_B, BTN_C, BTN_D};
-const int GAME_TIME = 30; // in seconds
-const uint16_t LANE_COLORS[4] = {ST77XX_RED, ST77XX_GREEN, ST77XX_BLUE, ST77XX_YELLOW};
 
-uint16_t curColor = LANE_COLORS[0];
+const int      GAME_TIME        = 30;              // round length (s)
+const uint32_t PENALTY_MS       = 3000;            // penalty length (ms)
+const int      NOTE_DURATION_MS = 250;             // tone length (ms)
+const uint16_t KEY_COLOR        = ST77XX_BLUE;     // key color
+const uint32_t DEBOUNCE_MS      = 25;              // min quiet time before a press counts
 
-// =================================================================
-// Peripherals
-// =================================================================
 Adafruit_ST7789 tft(&SPI, TFT_CS, TFT_DC, TFT_RST);
 TM1637Display   sevenseg(TM_CLK, TM_DIO);
 PWMAudio        pwm(AUDIO_PIN);
 
-// =================================================================
-// Audio engine — native PWMAudio, manual polyphonic mixing
-// =================================================================
 const uint32_t SAMPLE_RATE = 22050;
-const int NUM_VOICES = 6; // headroom for a 3-note chord overlapping a still-decaying prior note
+const int NUM_VOICES = 6; // headroom for fast presses overlapping still-decaying notes
 
 struct Voice {
   bool active = false;
@@ -53,11 +48,17 @@ struct Voice {
   uint32_t sampleIndex = 0;
 };
 Voice voices[NUM_VOICES];
-float masterVolume = 1.0f;
+float masterVolume = 0.25f;
 
 int allocateVoice() {
   for (int i = 0; i < NUM_VOICES; i++) if (!voices[i].active) return i;
-  return 0;
+  int best = 0;
+  uint32_t leastRemaining = UINT32_MAX;
+  for (int i = 0; i < NUM_VOICES; i++) {
+    uint32_t remaining = voices[i].totalSamples - voices[i].sampleIndex;
+    if (remaining < leastRemaining) { leastRemaining = remaining; best = i; }
+  }
+  return best;
 }
 
 void playNote(float freqHz, int durationMs) {
@@ -80,19 +81,11 @@ void audioTick() {
       float envelope = 1.0f;
       if (t < 0.005f) envelope = t / 0.005f;
       else if (remaining < 0.005f) envelope = remaining / 0.005f;
-
-      // Fixed per-voice gain (not divided by instantaneous active count) —
-      // this is what fixes the volume inconsistency/warbling: a note's
-      // loudness no longer jumps around depending on what else is playing
-      // at that exact moment.
       mixed += sinf(2.0f * PI * vc.freq * t) * envelope * (1.0f / NUM_VOICES);
 
       vc.sampleIndex++;
       if (vc.sampleIndex >= vc.totalSamples) vc.active = false;
     }
-
-    // Soft clip (tanh) instead of hard clipping — smooths over the rare
-    // case where several voices peak together, avoiding harsh crackle.
     mixed = tanhf(mixed * 1.8f);
 
     int16_t sample = (int16_t)(mixed * 16000.0f * masterVolume);
@@ -100,103 +93,271 @@ void audioTick() {
   }
 }
 
-// =================================================================
-// Song data — original melody (not a copyrighted transcription),
-// each note tagged with which button lane (0-3) triggers it.
-// Format: {frequency, duration_ms, lane}
-// =================================================================
-#define NOTE_C4 262
-#define NOTE_D4 294
-#define NOTE_E4 330
-#define NOTE_F4 349
-#define NOTE_G4 392
-#define NOTE_A4 440
-#define NOTE_B4 494
-#define NOTE_C5 523
-#define NOTE_D5 587
-#define NOTE_E5 659
-#define NOTE_G5 784
+const int SCALE[] = {
+  NOTE_C4, NOTE_D4, NOTE_E4, NOTE_G4, NOTE_A4,
+  NOTE_C5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_A5,
+};
+const int SCALE_LEN = sizeof(SCALE) / sizeof(SCALE[0]);
 
-struct CustomSongNote {
-  int freqs[3];   // up to 3 simultaneous notes; use 0 to leave a slot empty
-  int freqCount;  // how many of the above are actually used
-  int dur;
+const int QUEUE_LEN = 3; // 0 = cur key, 1 = next key, 2 = last key
+struct QueuedKey {
+  int freq;
   int lane;
 };
+QueuedKey noteQueue[QUEUE_LEN];
+int scaleIdx = SCALE_LEN / 2;
+int lastLane = -1;
 
-// Helper macros so single notes and chords both read cleanly below
-#define NOTE1(f, d, l)       {{f, 0, 0}, 1, d, l}
-#define CHORD2(f1, f2, d, l) {{f1, f2, 0}, 2, d, l}
-#define CHORD3(f1, f2, f3, d, l) {{f1, f2, f3}, 3, d, l}
+QueuedKey generateKey() {
+  // Melodic random walk: step at most 2 scale degrees so it sounds like
+  // a tune rather than uniform noise.
+  scaleIdx = constrain(scaleIdx + (int)random(-2, 3), 0, SCALE_LEN - 1);
+  int lane;
+  do { lane = random(4); } while (lane == lastLane); // never same key twice in a row
+  lastLane = lane;
+  return { SCALE[scaleIdx], lane };
+}
 
-CustomSongNote song[] = {
-  NOTE1(NOTE_G4, 300, 0), NOTE1(NOTE_C5, 300, 1), NOTE1(NOTE_E5, 300, 2), NOTE1(NOTE_G5, 450, 3),
-  NOTE1(NOTE_E5, 300, 2), NOTE1(NOTE_C5, 300, 1),
-  CHORD3(NOTE_G4, NOTE_C5, NOTE_E5, 500, 0),  // example chord — all three notes fire together on button A
-  NOTE1(NOTE_A4, 300, 0), NOTE1(NOTE_C5, 300, 1), NOTE1(NOTE_E5, 300, 2), NOTE1(NOTE_D5, 450, 3),
-  NOTE1(NOTE_C5, 300, 1), NOTE1(NOTE_A4, 300, 0), NOTE1(NOTE_F4, 450, 0),
-  NOTE1(NOTE_G4, 250, 0), NOTE1(NOTE_A4, 250, 1), NOTE1(NOTE_B4, 250, 2), NOTE1(NOTE_C5, 250, 3),
-  NOTE1(NOTE_D5, 600, 3),
-};
-const int songLength = sizeof(song) / sizeof(song[0]);
+void refillQueue() {
+  lastLane = -1;
+  scaleIdx = SCALE_LEN / 2;
+  for (int i = 0; i < QUEUE_LEN; i++) noteQueue[i] = generateKey();
+}
 
-// =================================================================
-// Game state
-// =================================================================
-int currentNote = 0;
-bool lastBtnState[4] = {true, true, true, true}; // pull-up idle HIGH
-unsigned long songStartMs = 0;
-int lastDrawnNote = -1;   // used to only redraw TFT when something changed
-int lastDrawnSecond = -1; // used to only redraw TM1637 once per second
+void advanceQueue() {
+  for (int i = 0; i < QUEUE_LEN - 1; i++) noteQueue[i] = noteQueue[i + 1];
+  noteQueue[QUEUE_LEN - 1] = generateKey();
+}
 
-// =================================================================
-// Display helpers
-// =================================================================
-void drawProgress() {
-//   if (currentNote == lastDrawnNote) return; // dirty-check: skip redundant draws
-  lastDrawnNote = currentNote;
+enum GameState { STATE_IDLE, STATE_PLAYING, STATE_PENALTY, STATE_GAMEOVER };
+GameState state = STATE_IDLE;
 
-  tft.fillRect(0, 0, 240, 90, ST77XX_BLACK); // only clear the info area, not full screen
+int score = 0;
+int highScore = 0; // persisted to flash
+unsigned long gameStartMs = 0;
+unsigned long stateEnteredMs = 0;
 
-//   tft.setCursor(10, 10);
-//   tft.setTextSize(2);
-//   tft.setTextColor(ST77XX_WHITE);
-  if (currentNote < songLength) {
-    // tft.print("Note ");
-    // tft.print(currentNote + 1);
-    // tft.print("/");
-    // tft.println(songLength);
+int penaltyLane = 0;
+unsigned long lastBlinkMs = 0;
+bool blinkOn = false;
 
-    // tft.setCursor(10, 40);
-    // tft.setTextSize(3);
-    tft.fillRect(0, 0, 60, 80, curColor);
-    // tft.setTextColor(laneColors[song[currentNote].lane]);
-    // tft.print("Press ");
-    // tft.println((char)('A' + song[currentNote].lane));
-  } else {
-    tft.setCursor(10, 30);
-    tft.setTextSize(2);
-    tft.setTextColor(ST77XX_GREEN);
-    tft.println("Song complete!");
+const uint32_t HIGHSCORE_MAGIC = 0x4B455953; // "KEYS"
+
+void loadHighScore() {
+  uint32_t magic;
+  EEPROM.get(0, magic);
+  if (magic == HIGHSCORE_MAGIC) EEPROM.get(sizeof(magic), highScore);
+}
+
+void saveHighScore() {
+  EEPROM.put(0, HIGHSCORE_MAGIC);
+  EEPROM.put(sizeof(HIGHSCORE_MAGIC), highScore);
+  EEPROM.commit();
+}
+
+// Dirty-check trackers so we only touch the displays on change —
+// long SPI bursts stall loop() and starve the audio buffer.
+int lastDrawnSecond = -1;
+int lastDrawnScore = -1;
+int prevQueueLanes[QUEUE_LEN];
+bool prevQueueValid = false;
+
+bool lastReading[4] = {true, true, true, true}; // pull-up idle HIGH
+unsigned long lastEdgeMs[4] = {0, 0, 0, 0};
+
+int pollButtons() {
+  int pressed = -1;
+  unsigned long now = millis();
+  for (int i = 0; i < 4; i++) {
+    bool r = digitalRead(BTN_PINS[i]);
+    if (r != lastReading[i]) {
+      if (r == LOW && (now - lastEdgeMs[i]) >= DEBOUNCE_MS) pressed = i;
+      lastReading[i] = r;
+      lastEdgeMs[i] = now;
+    }
   }
+  return pressed;
+}
+
+uint16_t dimColor(uint16_t c) {
+  return (c & 0xF7DE) >> 1; // halve each 5-6-5 channel
+}
+
+struct KeyRect { int x, y, w, h; };
+
+KeyRect keyRect(int lane, int depth) { // depth 0 = current key, 1-2 = upcoming
+  const int ROW_Y[QUEUE_LEN] = {230, 135, 40};
+  return { lane * 60 + 5, ROW_Y[depth], 50, 75 };
+}
+
+void drawScoreLabel() {
+  tft.setCursor(8, 6);
+  tft.setTextSize(2);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.print("SCORE:");
+}
+
+void drawScore() {
+  if (score == lastDrawnScore) return;
+  lastDrawnScore = score;
+  tft.fillRect(92, 0, 56, 28, ST77XX_BLACK); // number box only, label is static
+  tft.setCursor(94, 6);
+  tft.setTextSize(2);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.print(score);
+}
+
+void drawHighScore() { // updated at game over
+  char buf[12];
+  snprintf(buf, sizeof(buf), "HI:%d", highScore);
+  tft.setTextSize(2);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setCursor(236 - (int)strlen(buf) * 12, 6);
+  tft.print(buf);
+}
+
+void drawKeys() {
+  // Lazy rects: per row, touch the screen only if that row's block
+  // actually moved — erase the old lane, fill the new one, nothing else.
+  for (int d = 0; d < QUEUE_LEN; d++) {
+    if (prevQueueValid && prevQueueLanes[d] == noteQueue[d].lane) continue;
+    if (prevQueueValid) {
+      KeyRect r = keyRect(prevQueueLanes[d], d);
+      tft.fillRect(r.x, r.y, r.w, r.h, ST77XX_BLACK);
+    }
+    KeyRect r = keyRect(noteQueue[d].lane, d);
+    tft.fillRect(r.x, r.y, r.w, r.h, d == 0 ? KEY_COLOR : dimColor(KEY_COLOR));
+    prevQueueLanes[d] = noteQueue[d].lane;
+  }
+  prevQueueValid = true;
 }
 
 void drawTimer() {
-  unsigned long elapsedSec = (millis() - songStartMs) / 1000;
-  if ((int)elapsedSec == lastDrawnSecond) return; // only update once per second
-  lastDrawnSecond = elapsedSec;
+  long remaining = (long)GAME_TIME - (long)((millis() - gameStartMs) / 1000);
+  if (remaining < 0) remaining = 0;
+  if ((int)remaining == lastDrawnSecond) return; // only update once per second
+  lastDrawnSecond = remaining;
 
-  int mins = GAME_TIME - (elapsedSec / 60);
-  int secs = GAME_TIME - (elapsedSec % 60);
-  int displayVal = mins * 100 + secs; // e.g. 1:05 -> 105, shown as 01:05 with colon
-  sevenseg.showNumberDecEx(displayVal, 0b01000000, true); // 0x40 = colon bit, varies by module
+  int mins = remaining / 60;
+  int secs = remaining % 60;
+  sevenseg.showNumberDecEx(mins * 100 + secs, 0b01000000, true); // 0x40 = colon bit
 }
 
-// =================================================================
+bool timeUp() {
+  return (millis() - gameStartMs) >= (unsigned long)GAME_TIME * 1000UL;
+}
+
+void enterIdle() {
+  state = STATE_IDLE;
+  stateEnteredMs = millis();
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextSize(4);
+  tft.setTextColor(KEY_COLOR);
+  tft.setCursor(12, 110);
+  tft.print("KEYSTROKE");
+  tft.setTextSize(2);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setCursor(42, 180);
+  tft.print("PRESS ANY KEY");
+  sevenseg.showNumberDecEx(GAME_TIME, 0b01000000, true); // shows 00:30
+}
+
+void startRound() {
+  randomSeed(micros()); // seeded by human keypress timing
+  state = STATE_PLAYING;
+  score = 0;
+  lastDrawnScore = -1;
+  lastDrawnSecond = -1;
+  prevQueueValid = false;
+  refillQueue();
+  tft.fillScreen(ST77XX_BLACK);
+  drawScoreLabel();
+  drawScore();
+  drawHighScore();
+  drawKeys();
+  gameStartMs = millis();
+  drawTimer();
+}
+
+void enterPenalty(int lane) {
+  state = STATE_PENALTY;
+  stateEnteredMs = millis();
+  penaltyLane = lane;
+  blinkOn = true;
+  lastBlinkMs = millis();
+
+  // keep correct key on screen
+  KeyRect r = keyRect(lane, 0);
+  tft.fillRect(r.x, r.y, r.w, r.h, ST77XX_RED);
+}
+
+void updatePenalty() {
+  unsigned long now = millis();
+  if (now - lastBlinkMs >= 300) { // flash the wrong key red
+    lastBlinkMs = now;
+    blinkOn = !blinkOn;
+    KeyRect r = keyRect(penaltyLane, 0);
+    tft.fillRect(r.x, r.y, r.w, r.h, blinkOn ? ST77XX_RED : ST77XX_BLACK);
+  }
+  if (now - stateEnteredMs >= PENALTY_MS) {
+    state = STATE_PLAYING;
+    KeyRect r = keyRect(penaltyLane, 0); // erase the red block, field is intact
+    tft.fillRect(r.x, r.y, r.w, r.h, ST77XX_BLACK);
+  }
+}
+
+void enterGameOver() {
+  state = STATE_GAMEOVER;
+  stateEnteredMs = millis();
+  bool newHigh = score > highScore;
+  if (newHigh) {
+    highScore = score;
+    saveHighScore();
+  }
+  sevenseg.showNumberDec(score);
+
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextSize(3);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setCursor(30, 60);
+  tft.print("TIME'S UP!");
+
+  tft.setTextSize(6);
+  tft.setTextColor(KEY_COLOR);
+  int digits = score >= 100 ? 3 : (score >= 10 ? 2 : 1);
+  tft.setCursor((240 - digits * 36) / 2, 130);
+  tft.print(score);
+
+  tft.setTextSize(2);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setCursor(96, 195);
+  tft.print("KEYS");
+  if (newHigh) {
+    tft.setTextColor(ST77XX_YELLOW);
+    tft.setCursor(66, 230);
+    tft.print("NEW HIGH!");
+  }
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setCursor(42, 270);
+  tft.print("PRESS ANY KEY");
+}
+
+void handlePress(int lane) {
+  if (lane == noteQueue[0].lane) {
+    playNote(noteQueue[0].freq, NOTE_DURATION_MS);
+    score++;
+    advanceQueue();
+    drawKeys();
+    drawScore();
+  } else {
+    enterPenalty(lane);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
 
-  // TFT
+  // Screen
   SPI.begin();
   tft.init(240, 320);
   tft.setSPISpeed(62500000);
@@ -206,44 +367,49 @@ void setup() {
   digitalWrite(TFT_LED, HIGH);
   tft.fillScreen(ST77XX_BLACK);
 
-  // TM1637
+  // 7 Segment 4 Digit Display
   sevenseg.setBrightness(7);
   sevenseg.clear();
 
-  // Buttons
+  // Keys
   for (int i = 0; i < 4; i++) pinMode(BTN_PINS[i], INPUT_PULLUP);
 
-  // Audio
-  pwm.setBuffers(4, 32);
+  // Speaker
+  pwm.setBuffers(8, 64);
   pwm.begin(SAMPLE_RATE);
 
-  songStartMs = millis();
-  drawProgress();
-  drawTimer();
+  // High score from flash
+  EEPROM.begin(256);
+  loadHighScore();
+
+  enterIdle();
 }
 
 void loop() {
-  audioTick(); // must run every iteration, keeps audio glitch-free
+  audioTick(); // runs every iteration to keep audio glitch-free
 
-  // --- Button input: advance only on the correct lane's press ---
-  for (int i = 0; i < 4; i++) {
-    bool state = digitalRead(BTN_PINS[i]);
-    if (lastBtnState[i] == HIGH && state == LOW) { // falling edge = press
-      if (currentNote < songLength && song[currentNote].lane == i) {
-        for (int f = 0; f < song[currentNote].freqCount; f++) {
-          playNote(song[currentNote].freqs[f], song[currentNote].dur);
-        }
-        currentNote++;
-      }
-      // wrong-lane presses are currently ignored — extend here for
-      // miss detection / scoring once the MVP is working
-    }
-    lastBtnState[i] = state;
+  int pressed = pollButtons();
+
+  switch (state) {
+    case STATE_IDLE:
+      if (pressed >= 0) startRound();
+      break;
+
+    case STATE_PLAYING:
+      if (timeUp()) { enterGameOver(); break; }
+      drawTimer();
+      if (pressed >= 0) handlePress(pressed);
+      break;
+
+    case STATE_PENALTY:
+      if (timeUp()) { enterGameOver(); break; } // penalty eats into the clock
+      drawTimer();
+      updatePenalty(); // presses ignored until the flash ends
+      break;
+
+    case STATE_GAMEOVER:
+      // small lockout so a press from the final moments doesn't insta-restart
+      if (pressed >= 0 && millis() - stateEnteredMs > 800) startRound();
+      break;
   }
-
-  // --- Display updates (dirty-checked, only redraw on change) ---
-  drawProgress();
-
-  if (GAME_TIME > -1)
-    drawTimer();
 }
