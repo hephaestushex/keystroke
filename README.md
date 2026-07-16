@@ -1,5 +1,12 @@
 <img src="assets/main_pic.png" height="400" alt="Keystroke Picture">
 
+<img width="3024" height="4032" alt="IMG_2808" src="https://github.com/user-attachments/assets/43148bc9-54be-4125-aab1-4fe25e712edf" />
+
+<img width="3024" height="4032" alt="IMG_2803" src="https://github.com/user-attachments/assets/f498549a-2ddb-4cd0-9285-38671cf9bf8c" />
+<img width="3024" height="4032" alt="IMG_2801" src="https://github.com/user-attachments/assets/346111d6-9efd-43ae-a571-5f7e36dd1f51" />
+<img width="3024" height="4032" alt="IMG_2798" src="https://github.com/user-attachments/assets/fcddcf3f-412d-4858-b95a-1878fa587ed9" />
+<img width="3024" height="4032" alt="IMG_2797" src="https://github.com/user-attachments/assets/a05e9f96-9ae5-41e2-9560-9c634f72ee06" />
+
 # Keystroke
 
 _A mini piano-based arcade game, based off the arcade game Grand Piano Keys_
@@ -43,9 +50,8 @@ Keystroke uses PlatformIO, with earlephilhower's build.
 You can view the full assembled cabinet as a STEP file under the `cad/` subdirectory, or [view the CAD on OnShape.](https://cad.onshape.com/documents/00226f2798e720e0cd69b425/w/7683bf336800655d27df2c58/e/37cc4361323e3d3f5d8912c6)
 
 ## BOM
-
-- 1 2.8" TFT LCD Module
-- 1 30mm Speaker
-- 1 Raspberry Pi Pico (or equivalent microcontroller)
+- 1 2.8" TFT LCD Module (ST7789)
+- 1 30mm Speaker (8 ohm)
+- 1 Orpheus Pico v2 (any pico compatible rp2040 will work)
 - 1 PAM8403 Module
-- 1 4 Digit 7 Segment Display
+- 1 4 Digit 7 Segment Display (TM6317 with 4 pins needed)
