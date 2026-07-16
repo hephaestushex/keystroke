@@ -5,6 +5,7 @@
 #include <Adafruit_ST7789.h>
 #include <TM1637Display.h>
 #include <math.h>
+#include "song_chopsticks.h"
 
 // =================================================================
 // Pin map — from keystroke.kicad_sch netlist
