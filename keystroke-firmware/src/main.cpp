@@ -28,7 +28,7 @@
 #define AUDIO_PIN 22   // -> PAM8403 INL
 
 const int BTN_PINS[4] = {BTN_A, BTN_B, BTN_C, BTN_D};
-const int GAME_TIME = 30 // in seconds
+const int GAME_TIME = 30; // in seconds
 const uint16_t LANE_COLORS[4] = {ST77XX_RED, ST77XX_GREEN, ST77XX_BLUE, ST77XX_YELLOW};
 
 uint16_t curColor = LANE_COLORS[0];
@@ -117,7 +117,7 @@ void audioTick() {
 #define NOTE_E5 659
 #define NOTE_G5 784
 
-struct SongNote {
+struct CustomSongNote {
   int freqs[3];   // up to 3 simultaneous notes; use 0 to leave a slot empty
   int freqCount;  // how many of the above are actually used
   int dur;
@@ -129,7 +129,7 @@ struct SongNote {
 #define CHORD2(f1, f2, d, l) {{f1, f2, 0}, 2, d, l}
 #define CHORD3(f1, f2, f3, d, l) {{f1, f2, f3}, 3, d, l}
 
-SongNote song[] = {
+CustomSongNote song[] = {
   NOTE1(NOTE_G4, 300, 0), NOTE1(NOTE_C5, 300, 1), NOTE1(NOTE_E5, 300, 2), NOTE1(NOTE_G5, 450, 3),
   NOTE1(NOTE_E5, 300, 2), NOTE1(NOTE_C5, 300, 1),
   CHORD3(NOTE_G4, NOTE_C5, NOTE_E5, 500, 0),  // example chord — all three notes fire together on button A
