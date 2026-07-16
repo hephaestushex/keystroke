@@ -17,8 +17,8 @@ void loop() {
   digitalWrite(BUILTIN_LED, LOW);
   delay(1000);
   TM1637Display display(26, 27, 60);
-  display.show(1, '1')
-  display.show(2, '2')
-  display.show(3, '3')
-  display.show(4, '4')
+  display.show(1, '1');
+  display.show(2, '2');
+  display.show(3, '3');
+  display.show(4, '4');
 }
